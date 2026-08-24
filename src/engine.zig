@@ -12,16 +12,23 @@ const protocol_api = struct {
 };
 
 const r4p = struct {
+    const DispatchFn = *const fn ([*:0]const u8, u32, *const protocol_api.ProtocolBuffer, *protocol_api.ProtocolBuffer) callconv(.c) i32;
+    var dispatch_fn: ?DispatchFn = null;
+    var active: bool = false;
+
     fn requiredSourceName(_: []const u8) []const u8 {
-        return "r4d-local";
+        return if (active) "r4p" else "none";
     }
 
     fn hasActiveR4p(_: []const u8) bool {
-        return false;
+        return dispatch_fn != null;
     }
 
-    fn dispatch(_: []const u8, _: u32, _: *const protocol_api.ProtocolBuffer, _: *protocol_api.ProtocolBuffer) i32 {
-        return r4p_contract.AUDIO_SID_RESULT_UNSUPPORTED;
+    fn dispatch(_: []const u8, op: u32, in_buffer: *const protocol_api.ProtocolBuffer, out_buffer: *protocol_api.ProtocolBuffer) i32 {
+        const callback = dispatch_fn orelse return r4p_contract.AUDIO_SID_RESULT_UNSUPPORTED;
+        const result = callback("audio.sid", op, in_buffer, out_buffer);
+        if (result != -5) active = true;
+        return result;
     }
 };
 
@@ -180,6 +187,12 @@ var sid_last_result: i32 = 0;
 var sid_last_kind: u8 = 0;
 var sid_last_voice: u8 = 0;
 
+pub fn bindProtocolDispatch(dispatch_fn: ?r4p.DispatchFn) bool {
+    r4p.dispatch_fn = dispatch_fn;
+    r4p.active = false;
+    return dispatch_fn != null;
+}
+
 pub fn reset() void {
     clearMemory();
     clearRegisters();
@@ -246,19 +259,20 @@ pub fn reset() void {
     sid_last_voice = 0;
 }
 
-pub fn configureModel(name: []const u8) void {
+pub fn configureModel(name: []const u8) bool {
     const requested = if (eqIgnoreCase(name, "6581") or eqIgnoreCase(name, "MOS6581"))
         r4p_contract.AUDIO_SID_MODEL_6581
     else if (eqIgnoreCase(name, "8580") or eqIgnoreCase(name, "MOS8580"))
         r4p_contract.AUDIO_SID_MODEL_8580
     else
-        return;
-    if (classifySidModel(requested) == null) return;
+        return false;
+    if (classifySidModel(requested) == null) return false;
     if (requested == r4p_contract.AUDIO_SID_MODEL_6581) {
         sid_model = .mos6581;
     } else {
         sid_model = .mos8580;
     }
+    return true;
 }
 
 pub fn modelNameZ() [*:0]const u8 {
@@ -283,6 +297,11 @@ pub fn protocolStatus() SidProtocolStatus {
 }
 
 pub fn writeRegister(register: u8, value: u8) i32 {
+    _ = classifySidRegister(register, value) orelse return -5;
+    return writeRegisterDecoded(register, value);
+}
+
+fn writeRegisterDecoded(register: u8, value: u8) i32 {
     if (register >= REG_COUNT) return -1;
     const old_value = registers[register];
     registers[register] = value;
@@ -1392,7 +1411,7 @@ fn writeSid(addr: u16, value: u8) void {
     memory[addr] = value;
     if (reg < REG_COUNT) {
         memory[0xD400 + @as(u16, reg)] = value;
-        _ = writeRegister(reg, value);
+        _ = writeRegisterDecoded(reg, value);
     }
 }
 

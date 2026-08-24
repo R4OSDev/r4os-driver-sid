@@ -12,7 +12,10 @@ comptime {
 
 export fn sid_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
     var ctx = r4os.r4dev.DriverContext.init(api);
+    if (!ctx.apiCompatible()) return -10;
+    if (!sid.bindProtocolDispatch(api.protocol_dispatch)) return -11;
     ctx.logInfo("SID synth engine init");
+    sid.reset();
     engine = .{
         .flags = r4os.abi.synth_engine_flag_sid,
         .stop = sidStop,
@@ -57,13 +60,13 @@ fn sidRelease(context: ?*anyopaque, handle: u32) callconv(.c) i32 {
 
 fn sidSetModel(context: ?*anyopaque, model: u32) callconv(.c) i32 {
     _ = context;
-    switch (model) {
+    const ok = switch (model) {
         r4os.abi.audio_sid_model_6581 => sid.configureModel("6581"),
         r4os.abi.audio_sid_model_8580 => sid.configureModel("8580"),
-        else => return -1,
-    }
-    engine_last_result = 0;
-    return 0;
+        else => false,
+    };
+    engine_last_result = if (ok) 0 else -1;
+    return engine_last_result;
 }
 
 fn sidWriteRegister(context: ?*anyopaque, handle: u32, register: u32, value: u32) callconv(.c) i32 {

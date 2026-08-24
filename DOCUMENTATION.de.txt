@@ -5,8 +5,8 @@ SID-SynthEngine-Treiber fuer R4OS.
 
 Ziele:
 - erzeugt eine gueltige SID.R4D-Datei mit Treibertyp synth
-- wird aus Zig ueber Code/System/SDK/r4os und Code/build.zig gebaut
-- nutzt seit 0.45.20 DriverApi-v12 `register_synth_engine_v2` ueber den
+- wird aus Zig ueber das gemappte R4OS-SDK gebaut
+- nutzt `register_synth_engine_v2` ueber den
   SDK-Wrapper `registerSynthEngineEx`
 - seit 0.45.23 besitzt SID.R4D die SID-Laufzeit-Engine selbst:
   6502/6510-Stepper, C64-Speicher, PSID/RSID-Ladedaten, Init-/Play-Routinen,
@@ -19,29 +19,26 @@ PCM-Pfad:
 - `sid_render_pcm` liefert danach den gerenderten 48-kHz-Stereo-s16le-Block
   an den Kernel zurueck, der ihn unveraendert an das aktive AudioBackend
   weitergibt.
+- Bei Backend-`Busy` bleibt genau dieser PCM-Block im Kernel erhalten. Der
+  erneute `sid_play_frame`-Aufruf schreibt ihn weiter, ohne die 6510-Routine
+  ein zweites Mal auszufuehren.
 
-Build:
+Protokollpfad seit 0.69.28:
+- DriverApi v18 stellt den synchronen `protocol_dispatch` bereit.
+- Modell-, Register- und gespiegelte C64-I/O-Daten durchlaufen damit den
+  installierten Vertrag `audio.sid`; die fruehere lokale Immer-Unsupported-
+  Attrappe ist entfernt.
+- Nach dem Laden der R4P-Module wendet der Kernel das konfigurierte SID-Modell
+  erneut ueber diesen produktiven Pfad an.
 
-    cd Code
-    ..\DevTools\Zig\zig.exe build
+Build unter Linux beziehungsweise Windows:
 
-Output:
-
-    Code/zig-out/SID.R4D
-
-Projektstruktur seit 0.51.22
---------------------------------
-
-Dieses Verzeichnis ist ein eigenstaendiges R4OS-SDK-Projekt fuer SID.R4D.
-
-Build:
-
-    cd Code\System\Driver\SID
-    ..\..\..\DevTools\Zig\zig.exe build
+    ./Build.sh
+    Build.bat
 
 Artefakt:
 
-    zig-out\SID.R4D
+    Artifacts/Modules/SID/SID.R4D
 
 Manifest:
 
