@@ -79,8 +79,8 @@ fn sidWriteRegister(context: ?*anyopaque, handle: u32, register: u32, value: u32
 fn sidLoadData(context: ?*anyopaque, handle: u32, offset: u32, data: [*]const u8, len: u32) callconv(.c) i32 {
     _ = context;
     if (handle != 1) return -1;
-    if (len == 0 or len > 65_536) return -2;
-    const load_addr: u16 = @intCast(offset & 0xFFFF);
+    if (offset > 0xFFFF) return -2;
+    const load_addr: u16 = @intCast(offset);
     const ok = sid.loadSidData(load_addr, data[0..len]);
     engine_last_result = if (ok) 0 else -3;
     return engine_last_result;
@@ -106,10 +106,12 @@ fn sidPlayFrame(context: ?*anyopaque, handle: u32, frames: u32, flags: u32) call
 fn sidRenderPcm(context: ?*anyopaque, handle: u32, out: [*]u8, len: u32) callconv(.c) i32 {
     _ = context;
     if (handle != 1) return -1;
-    if (len < sid.RENDER_BYTES) return -2;
-    _ = sid.renderBlock(out[0..sid.RENDER_BYTES]);
+    const bytes = sid.renderBlock(out[0..len]) orelse {
+        engine_last_result = -2;
+        return -2;
+    };
     engine_last_result = 0;
-    return sid.RENDER_BYTES;
+    return @intCast(bytes);
 }
 
 fn sidStatus(context: ?*anyopaque, out: *r4os.abi.SynthEngineStatus) callconv(.c) i32 {

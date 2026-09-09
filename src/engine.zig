@@ -53,6 +53,7 @@ const r4p_contract = struct {
 
 const MEM_SIZE: usize = 65_536;
 const REG_COUNT: usize = 25;
+// Maximum PCM block; an individual interval may produce fewer frames.
 pub const RENDER_FRAMES: usize = SAMPLE_RATE / 50;
 pub const RENDER_BYTES: usize = RENDER_FRAMES * 4;
 const SAMPLE_RATE: u32 = 48_000;
@@ -124,6 +125,8 @@ const FilterState = struct {
 };
 
 var memory: [MEM_SIZE]u8 = .{0} ** MEM_SIZE;
+// RAM produced by the current title, including relocated/decompressed play code.
+var written_ram: [MEM_SIZE / 8]u8 = .{0} ** (MEM_SIZE / 8);
 var registers: [REG_COUNT]u8 = .{0} ** REG_COUNT;
 var voices: [VOICE_COUNT]Voice = .{Voice{}} ** VOICE_COUNT;
 var cpu: Cpu = .{};
@@ -144,6 +147,7 @@ var runtime_init_addr: u16 = 0;
 var runtime_play_addr: u16 = 0;
 var runtime_song: u8 = 0;
 var runtime_frame_hz: u16 = 50;
+var render_remainder: u32 = 0;
 var runtime_frames: u64 = 0;
 var runtime_running: bool = false;
 var runtime_last_steps: u32 = 0;
@@ -215,6 +219,7 @@ pub fn reset() void {
     runtime_play_addr = 0;
     runtime_song = 0;
     runtime_frame_hz = 50;
+    render_remainder = 0;
     runtime_frames = 0;
     runtime_running = false;
     runtime_last_steps = 0;
@@ -317,8 +322,14 @@ fn writeRegisterDecoded(register: u8, value: u8) i32 {
     return 0;
 }
 
-pub fn renderBlock(out: []u8) bool {
-    if (out.len < RENDER_BYTES) return false;
+pub fn renderBlock(out: []u8) ?usize {
+    const numerator = SAMPLE_RATE + render_remainder;
+    const frames = numerator / runtime_frame_hz;
+    const bytes = frames * 4;
+    if (out.len < bytes) {
+        last_error = "pcm-buffer";
+        return null;
+    }
     const volume = registers[0x18] & 0x0F;
     last_master_volume = volume;
     const filter_route = registers[0x17] & 0x07;
@@ -331,9 +342,8 @@ pub fn renderBlock(out: []u8) bool {
     last_filter_cutoff = filterCutoff();
     last_block_clip_events = 0;
 
-    var block_audible = false;
     var frame: usize = 0;
-    while (frame < RENDER_FRAMES) : (frame += 1) {
+    while (frame < frames) : (frame += 1) {
         var direct_sum: i32 = 0;
         var filter_sum: i32 = 0;
         var direct_active: u8 = 0;
@@ -360,7 +370,6 @@ pub fn renderBlock(out: []u8) bool {
         last_direct_sample = clampI16(direct);
         last_filter_sample = clampI16(filtered);
         const d418 = renderD418Sample();
-        if (d418 != 0) block_audible = true;
         var mixed = direct + filtered;
         mixed = applyModelOutput(mixed);
         mixed = @divTrunc(mixed * @as(i32, volume), 15);
@@ -374,12 +383,12 @@ pub fn renderBlock(out: []u8) bool {
         out[off + 3] = out[off + 1];
         last_sample = sample_i16;
         last_mixed_voices = audible_active;
-        if (sample_i16 != 0) block_audible = true;
     }
 
     render_blocks += 1;
-    render_frames += RENDER_FRAMES;
-    return block_audible;
+    render_frames += frames;
+    render_remainder = numerator % runtime_frame_hz;
+    return bytes;
 }
 
 pub fn loadProgram(load_addr: u16, data: []const u8) bool {
@@ -391,14 +400,16 @@ pub fn loadProgram(load_addr: u16, data: []const u8) bool {
     return true;
 }
 
+// One call starts one independent image. The public API does not append segments.
 pub fn loadSidData(load_addr: u16, data: []const u8) bool {
+    clearMemory();
+    clearRuntimeState();
     if (data.len == 0 or @as(usize, load_addr) + data.len > memory.len) {
         last_error = "sid-load-range";
         runtime_loaded = false;
         return false;
     }
 
-    clearRuntimeState();
     @memcpy(memory[@as(usize, load_addr) .. @as(usize, load_addr) + data.len], data);
     runtime_loaded = true;
     runtime_load_addr = load_addr;
@@ -416,6 +427,10 @@ pub fn initSid(init_addr: u16, song: u16, max_steps: u32) bool {
         last_error = "sid-init-missing";
         return false;
     }
+    if (!inLoadImage(init_addr) or !ramEntry(init_addr)) {
+        last_error = "sid-init-range";
+        return false;
+    }
     runtime_init_addr = init_addr;
     runtime_song = if (song == 0) 0 else @intCast((song - 1) & 0x00FF);
     return callRoutineA(init_addr, runtime_song, max_steps);
@@ -426,11 +441,27 @@ pub fn playFrame(play_addr: u16, frame_hz: u16, max_steps: u32) bool {
         last_error = "sid-play-missing";
         return false;
     }
+    const hz = if (frame_hz == 0) 50 else frame_hz;
+    // One interval must fit the existing 3840-byte audio contract and be nonempty.
+    if (hz < 50 or hz > SAMPLE_RATE) {
+        last_error = "sid-frame-rate";
+        return false;
+    }
+    if (!ramEntry(play_addr) or (!inLoadImage(play_addr) and !ramWritten(play_addr))) {
+        last_error = "sid-play-range";
+        return false;
+    }
+    if (!callRoutineA(play_addr, 0, max_steps)) {
+        runtime_running = false;
+        return false;
+    }
     runtime_play_addr = play_addr;
-    runtime_frame_hz = if (frame_hz == 0) 50 else frame_hz;
+    // A changed cadence starts a new fractional interval sequence.
+    if (runtime_frame_hz != hz) render_remainder = 0;
+    runtime_frame_hz = hz;
     runtime_frames += 1;
     runtime_running = true;
-    return callRoutineA(play_addr, 0, max_steps);
+    return true;
 }
 
 pub fn stopRuntime() void {
@@ -440,6 +471,9 @@ pub fn stopRuntime() void {
 
 fn callRoutineA(addr: u16, a_value: u8, max_steps: u32) bool {
     cpu = .{ .a = a_value, .pc = addr };
+    // Emulate the caller's return address. Only this stack boundary completes
+    // the host call; nested JSR/RTS and RTS-based jumps keep executing.
+    push16(0xFFFF);
     call_count += 1;
     runtime_last_steps = 0;
 
@@ -449,6 +483,11 @@ fn callRoutineA(addr: u16, a_value: u8, max_steps: u32) bool {
         runtime_last_steps = steps + 1;
         if (event == .running) continue;
         if (event == .rts) {
+            if (cpu.sp != 0xFF) continue;
+            if (cpu.pc != 0) {
+                last_error = "return-stack";
+                return false;
+            }
             last_error = "none";
             return true;
         }
@@ -711,6 +750,7 @@ fn clearRuntimeState() void {
     runtime_play_addr = 0;
     runtime_song = 0;
     runtime_frame_hz = 50;
+    render_remainder = 0;
     runtime_frames = 0;
     runtime_running = false;
     runtime_last_steps = 0;
@@ -746,7 +786,23 @@ fn clearRuntimeState() void {
     last_io_write_value = 0;
 }
 
+fn inLoadImage(addr: u16) bool {
+    const offset: usize = addr;
+    return offset >= runtime_load_addr and offset - runtime_load_addr < runtime_data_len;
+}
+
+fn ramEntry(addr: u16) bool {
+    // No ROM is installed. These addresses resolve to emulated I/O, not RAM.
+    return addr >= 2 and !(addr >= 0xD000 and addr <= 0xD7FF) and
+        !(addr >= 0xDC00 and addr <= 0xDDFF);
+}
+
+fn ramWritten(addr: u16) bool {
+    return written_ram[addr / 8] & (@as(u8, 1) << @intCast(addr % 8)) != 0;
+}
+
 fn clearMemory() void {
+    @memset(&written_ram, 0);
     var i: usize = 0;
     while (i < memory.len) : (i += 1) memory[i] = 0;
 }
@@ -1370,6 +1426,7 @@ fn write(addr: u16, value: u8) void {
         return;
     }
     memory[addr] = value;
+    written_ram[addr / 8] |= @as(u8, 1) << @intCast(addr % 8);
 }
 
 fn traceIoRead(addr: u16, value: u8) u8 {
