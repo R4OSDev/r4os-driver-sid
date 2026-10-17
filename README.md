@@ -4,7 +4,7 @@
 
 ## Package
 
-- Version: `0.1.3`
+- Version: `0.1.4`
 - Image target: `/R4OS/DRIVERS/SID.R4D`
 - Image scope: `full`
 - Canonical project manifest: `module.R4MF`
