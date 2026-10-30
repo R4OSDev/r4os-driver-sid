@@ -1,12 +1,5 @@
 const r4os = @import("r4os");
 
-const k = struct {
-    fn puts(_: []const u8) void {}
-    fn putDec(_: anytype) void {}
-    fn putHex(_: anytype, _: u8) void {}
-    fn putc(_: u8) void {}
-};
-
 const protocol_api = struct {
     const ProtocolBuffer = r4os.abi.ProtocolBuffer;
 };
@@ -14,21 +7,13 @@ const protocol_api = struct {
 const r4p = struct {
     const DispatchFn = *const fn ([*:0]const u8, u32, *const protocol_api.ProtocolBuffer, *protocol_api.ProtocolBuffer) callconv(.c) i32;
     var dispatch_fn: ?DispatchFn = null;
-    var active: bool = false;
-
-    fn requiredSourceName(_: []const u8) []const u8 {
-        return if (active) "r4p" else "none";
-    }
-
     fn hasActiveR4p(_: []const u8) bool {
         return dispatch_fn != null;
     }
 
     fn dispatch(_: []const u8, op: u32, in_buffer: *const protocol_api.ProtocolBuffer, out_buffer: *protocol_api.ProtocolBuffer) i32 {
         const callback = dispatch_fn orelse return r4p_contract.AUDIO_SID_RESULT_UNSUPPORTED;
-        const result = callback("audio.sid", op, in_buffer, out_buffer);
-        if (result != -5) active = true;
-        return result;
+        return callback("audio.sid", op, in_buffer, out_buffer);
     }
 };
 
@@ -43,11 +28,6 @@ const r4p_contract = struct {
     const AUDIO_SID_RESULT_UNSUPPORTED = r4os.abi.audio_sid_result_unsupported;
     const AUDIO_SID_MODEL_8580 = r4os.abi.audio_sid_model_8580;
     const AUDIO_SID_MODEL_6581 = r4os.abi.audio_sid_model_6581;
-    const AUDIO_SID_REGISTER_OTHER = r4os.abi.audio_sid_register_other;
-    const AUDIO_SID_REGISTER_VOICE = r4os.abi.audio_sid_register_voice;
-    const AUDIO_SID_REGISTER_FILTER = r4os.abi.audio_sid_register_filter;
-    const AUDIO_SID_REGISTER_VOLUME = r4os.abi.audio_sid_register_volume;
-    const AUDIO_SID_REGISTER_READBACK = r4os.abi.audio_sid_register_readback;
     const AudioSidOp = r4os.abi.AudioSidOp;
 };
 
@@ -107,18 +87,6 @@ const SidModel = enum {
     mos8580,
 };
 
-pub const SidProtocolStatus = struct {
-    source: []const u8 = "none",
-    model: u64 = 0,
-    register: u64 = 0,
-    io: u64 = 0,
-    missing_required: u64 = 0,
-    dispatch_fail: u64 = 0,
-    last_result: i32 = 0,
-    last_kind: u8 = 0,
-    last_voice: u8 = 0,
-};
-
 const FilterState = struct {
     low: i32 = 0,
     band: i32 = 0,
@@ -130,70 +98,25 @@ var written_ram: [MEM_SIZE / 8]u8 = .{0} ** (MEM_SIZE / 8);
 var registers: [REG_COUNT]u8 = .{0} ** REG_COUNT;
 var voices: [VOICE_COUNT]Voice = .{Voice{}} ** VOICE_COUNT;
 var cpu: Cpu = .{};
-var register_writes: u64 = 0;
-var last_register: u8 = 0;
-var last_value: u8 = 0;
-var cpu_steps: u64 = 0;
-var call_count: u64 = 0;
-var unsupported_count: u64 = 0;
-var brk_count: u64 = 0;
-var last_pc: u16 = 0;
-var last_opcode: u8 = 0;
-var last_error: []const u8 = "none";
 var runtime_loaded: bool = false;
 var runtime_load_addr: u16 = 0;
 var runtime_data_len: u32 = 0;
-var runtime_init_addr: u16 = 0;
-var runtime_play_addr: u16 = 0;
 var runtime_song: u8 = 0;
 var runtime_frame_hz: u16 = 50;
 var render_remainder: u32 = 0;
 var runtime_frames: u64 = 0;
-var runtime_running: bool = false;
-var runtime_last_steps: u32 = 0;
-var runtime_step_limit_hits: u32 = 0;
-var render_blocks: u64 = 0;
-var render_frames: u64 = 0;
-var last_sample: i16 = 0;
-var last_mixed_voices: u8 = 0;
-var last_master_volume: u8 = 0;
 var sid_model: SidModel = .mos8580;
 var filter_state: FilterState = .{};
 var last_filter_cutoff: u16 = 0;
 var last_filter_resonance: u8 = 0;
-var last_filter_mode: u8 = 0;
-var last_filter_route: u8 = 0;
-var last_filter_sample: i16 = 0;
-var last_direct_sample: i16 = 0;
-var last_voice3_off: bool = false;
-var last_d418_sample: i16 = 0;
 var d418_decay_sample: i32 = 0;
-var d418_write_count: u64 = 0;
-var render_clip_events: u64 = 0;
-var last_block_clip_events: u32 = 0;
-var last_preclip_sample: i32 = 0;
 var last_osc3_read: u8 = 0;
 var last_env3_read: u8 = 0;
 var last_potx_read: u8 = 0xFF;
 var last_poty_read: u8 = 0xFF;
-var last_raster_read: u16 = 0;
-var last_cia_read: u8 = 0;
-var last_io_read_addr: u16 = 0;
-var last_io_read_value: u8 = 0;
-var last_io_write_addr: u16 = 0;
-var last_io_write_value: u8 = 0;
-var sid_r4p_model: u64 = 0;
-var sid_r4p_register: u64 = 0;
-var sid_r4p_io: u64 = 0;
-var sid_missing_required: u64 = 0;
-var sid_dispatch_failures: u64 = 0;
-var sid_last_result: i32 = 0;
-var sid_last_kind: u8 = 0;
-var sid_last_voice: u8 = 0;
 
 pub fn bindProtocolDispatch(dispatch_fn: ?r4p.DispatchFn) bool {
     r4p.dispatch_fn = dispatch_fn;
-    r4p.active = false;
     return dispatch_fn != null;
 }
 
@@ -202,66 +125,22 @@ pub fn reset() void {
     clearRegisters();
     voices = .{Voice{}} ** VOICE_COUNT;
     cpu = .{};
-    register_writes = 0;
-    last_register = 0;
-    last_value = 0;
-    cpu_steps = 0;
-    call_count = 0;
-    unsupported_count = 0;
-    brk_count = 0;
-    last_pc = 0;
-    last_opcode = 0;
-    last_error = "none";
     runtime_loaded = false;
     runtime_load_addr = 0;
     runtime_data_len = 0;
-    runtime_init_addr = 0;
-    runtime_play_addr = 0;
     runtime_song = 0;
     runtime_frame_hz = 50;
     render_remainder = 0;
     runtime_frames = 0;
-    runtime_running = false;
-    runtime_last_steps = 0;
-    runtime_step_limit_hits = 0;
-    render_blocks = 0;
-    render_frames = 0;
-    last_sample = 0;
-    last_mixed_voices = 0;
-    last_master_volume = 0;
     sid_model = .mos8580;
     filter_state = .{};
     last_filter_cutoff = 0;
     last_filter_resonance = 0;
-    last_filter_mode = 0;
-    last_filter_route = 0;
-    last_filter_sample = 0;
-    last_direct_sample = 0;
-    last_voice3_off = false;
-    last_d418_sample = 0;
     d418_decay_sample = 0;
-    d418_write_count = 0;
-    render_clip_events = 0;
-    last_block_clip_events = 0;
-    last_preclip_sample = 0;
     last_osc3_read = 0;
     last_env3_read = 0;
     last_potx_read = 0xFF;
     last_poty_read = 0xFF;
-    last_raster_read = 0;
-    last_cia_read = 0;
-    last_io_read_addr = 0;
-    last_io_read_value = 0;
-    last_io_write_addr = 0;
-    last_io_write_value = 0;
-    sid_r4p_model = 0;
-    sid_r4p_register = 0;
-    sid_r4p_io = 0;
-    sid_missing_required = 0;
-    sid_dispatch_failures = 0;
-    sid_last_result = 0;
-    sid_last_kind = 0;
-    sid_last_voice = 0;
 }
 
 pub fn configureModel(name: []const u8) bool {
@@ -287,20 +166,6 @@ pub fn modelNameZ() [*:0]const u8 {
     };
 }
 
-pub fn protocolStatus() SidProtocolStatus {
-    return .{
-        .source = r4p.requiredSourceName("audio.sid"),
-        .model = sid_r4p_model,
-        .register = sid_r4p_register,
-        .io = sid_r4p_io,
-        .missing_required = sid_missing_required,
-        .dispatch_fail = sid_dispatch_failures,
-        .last_result = sid_last_result,
-        .last_kind = sid_last_kind,
-        .last_voice = sid_last_voice,
-    };
-}
-
 pub fn writeRegister(register: u8, value: u8) i32 {
     _ = classifySidRegister(register, value) orelse return -5;
     return writeRegisterDecoded(register, value);
@@ -310,14 +175,8 @@ fn writeRegisterDecoded(register: u8, value: u8) i32 {
     if (register >= REG_COUNT) return -1;
     const old_value = registers[register];
     registers[register] = value;
-    last_register = register;
-    last_value = value;
-    register_writes += 1;
-    sid_last_kind = localRegisterKind(register);
-    sid_last_voice = if (register < 0x15) register / 7 else 0;
     if (register == 0x18) {
         noteD418Write(old_value, value);
-        last_master_volume = value & 0x0F;
     }
     return 0;
 }
@@ -327,20 +186,14 @@ pub fn renderBlock(out: []u8) ?usize {
     const frames = numerator / runtime_frame_hz;
     const bytes = frames * 4;
     if (out.len < bytes) {
-        last_error = "pcm-buffer";
         return null;
     }
     const volume = registers[0x18] & 0x0F;
-    last_master_volume = volume;
     const filter_route = registers[0x17] & 0x07;
     const filter_mode = (registers[0x18] >> 4) & 0x07;
     const voice3_off = (registers[0x18] & 0x80) != 0;
-    last_voice3_off = voice3_off;
-    last_filter_route = filter_route;
-    last_filter_mode = filter_mode;
     last_filter_resonance = registers[0x17] >> 4;
     last_filter_cutoff = filterCutoff();
-    last_block_clip_events = 0;
 
     var frame: usize = 0;
     while (frame < frames) : (frame += 1) {
@@ -348,11 +201,9 @@ pub fn renderBlock(out: []u8) ?usize {
         var filter_sum: i32 = 0;
         var direct_active: u8 = 0;
         var filter_active: u8 = 0;
-        var audible_active: u8 = 0;
         var voice_index: usize = 0;
         while (voice_index < VOICE_COUNT) : (voice_index += 1) {
             const sample = renderVoice(voice_index);
-            if (sample != 0) audible_active += 1;
             const routed = (filter_route & (@as(u8, 1) << @intCast(voice_index))) != 0;
             if (routed) {
                 filter_sum += sample;
@@ -367,8 +218,6 @@ pub fn renderBlock(out: []u8) ?usize {
         const filter_input = mixWithHeadroom(filter_sum, filter_active);
         var filtered: i32 = 0;
         if (filter_route != 0 and filter_mode != 0) filtered = runFilter(filter_input, filter_mode);
-        last_direct_sample = clampI16(direct);
-        last_filter_sample = clampI16(filtered);
         const d418 = renderD418Sample();
         var mixed = direct + filtered;
         mixed = applyModelOutput(mixed);
@@ -381,19 +230,14 @@ pub fn renderBlock(out: []u8) ?usize {
         out[off + 1] = @intCast((bits >> 8) & 0x00FF);
         out[off + 2] = out[off];
         out[off + 3] = out[off + 1];
-        last_sample = sample_i16;
-        last_mixed_voices = audible_active;
     }
 
-    render_blocks += 1;
-    render_frames += frames;
     render_remainder = numerator % runtime_frame_hz;
     return bytes;
 }
 
 pub fn loadProgram(load_addr: u16, data: []const u8) bool {
     if (@as(usize, load_addr) + data.len > memory.len) {
-        last_error = "load-range";
         return false;
     }
     @memcpy(memory[@as(usize, load_addr) .. @as(usize, load_addr) + data.len], data);
@@ -405,7 +249,6 @@ pub fn loadSidData(load_addr: u16, data: []const u8) bool {
     clearMemory();
     clearRuntimeState();
     if (data.len == 0 or @as(usize, load_addr) + data.len > memory.len) {
-        last_error = "sid-load-range";
         runtime_loaded = false;
         return false;
     }
@@ -414,7 +257,6 @@ pub fn loadSidData(load_addr: u16, data: []const u8) bool {
     runtime_loaded = true;
     runtime_load_addr = load_addr;
     runtime_data_len = @intCast(data.len);
-    last_error = "none";
     return true;
 }
 
@@ -424,49 +266,35 @@ pub fn callRoutine(addr: u16, max_steps: u32) bool {
 
 pub fn initSid(init_addr: u16, song: u16, max_steps: u32) bool {
     if (!runtime_loaded or init_addr == 0) {
-        last_error = "sid-init-missing";
         return false;
     }
     if (!inLoadImage(init_addr) or !ramEntry(init_addr)) {
-        last_error = "sid-init-range";
         return false;
     }
-    runtime_init_addr = init_addr;
     runtime_song = if (song == 0) 0 else @intCast((song - 1) & 0x00FF);
     return callRoutineA(init_addr, runtime_song, max_steps);
 }
 
 pub fn playFrame(play_addr: u16, frame_hz: u16, max_steps: u32) bool {
     if (!runtime_loaded or play_addr == 0) {
-        last_error = "sid-play-missing";
         return false;
     }
     const hz = if (frame_hz == 0) 50 else frame_hz;
     // One interval must fit the existing 3840-byte audio contract and be nonempty.
     if (hz < 50 or hz > SAMPLE_RATE) {
-        last_error = "sid-frame-rate";
         return false;
     }
     if (!ramEntry(play_addr) or (!inLoadImage(play_addr) and !ramWritten(play_addr))) {
-        last_error = "sid-play-range";
         return false;
     }
     if (!callRoutineA(play_addr, 0, max_steps)) {
-        runtime_running = false;
         return false;
     }
-    runtime_play_addr = play_addr;
     // A changed cadence starts a new fractional interval sequence.
     if (runtime_frame_hz != hz) render_remainder = 0;
     runtime_frame_hz = hz;
     runtime_frames += 1;
-    runtime_running = true;
     return true;
-}
-
-pub fn stopRuntime() void {
-    runtime_running = false;
-    last_error = "stopped";
 }
 
 fn callRoutineA(addr: u16, a_value: u8, max_steps: u32) bool {
@@ -474,235 +302,48 @@ fn callRoutineA(addr: u16, a_value: u8, max_steps: u32) bool {
     // Emulate the caller's return address. Only this stack boundary completes
     // the host call; nested JSR/RTS and RTS-based jumps keep executing.
     push16(0xFFFF);
-    call_count += 1;
-    runtime_last_steps = 0;
 
     var steps: u32 = 0;
     while (steps < max_steps) : (steps += 1) {
         const event = step();
-        runtime_last_steps = steps + 1;
         if (event == .running) continue;
         if (event == .rts) {
             if (cpu.sp != 0xFF) continue;
             if (cpu.pc != 0) {
-                last_error = "return-stack";
                 return false;
             }
-            last_error = "none";
             return true;
         }
         return false;
     }
 
-    last_error = "step-limit";
-    runtime_step_limit_hits += 1;
     return false;
 }
 
-pub fn dumpStatus() void {
-    k.puts("SID:\r\n");
-    k.puts("  core=yes calls=");
-    k.putDec(call_count);
-    k.puts(" cpu_steps=");
-    k.putDec(cpu_steps);
-    k.puts(" unsupported=");
-    k.putDec(unsupported_count);
-    k.puts(" brk=");
-    k.putDec(brk_count);
-    k.puts(" error=");
-    k.puts(last_error);
-    k.puts("\r\n");
-    k.puts("  cpu: pc=0x");
-    k.putHex(cpu.pc, 4);
-    k.puts(" a=0x");
-    k.putHex(cpu.a, 2);
-    k.puts(" x=0x");
-    k.putHex(cpu.x, 2);
-    k.puts(" y=0x");
-    k.putHex(cpu.y, 2);
-    k.puts(" sp=0x");
-    k.putHex(cpu.sp, 2);
-    k.puts(" p=0x");
-    k.putHex(cpu.p, 2);
-    k.puts(" last=0x");
-    k.putHex(last_pc, 4);
-    k.putc('/');
-    k.putHex(last_opcode, 2);
-    k.puts("\r\n");
-    k.puts("  registers: writes=");
-    k.putDec(register_writes);
-    k.puts(" last_reg=");
-    k.putDec(last_register);
-    k.puts(" last_val=");
-    k.putDec(last_value);
-    k.puts("\r\n");
-    k.puts("  c64: loaded=");
-    k.puts(if (runtime_loaded) "yes" else "no");
-    k.puts(" load=0x");
-    k.putHex(runtime_load_addr, 4);
-    k.puts(" bytes=");
-    k.putDec(runtime_data_len);
-    k.puts(" init=0x");
-    k.putHex(runtime_init_addr, 4);
-    k.puts(" play=0x");
-    k.putHex(runtime_play_addr, 4);
-    k.puts(" running=");
-    k.puts(if (runtime_running) "yes" else "no");
-    k.puts(" song=");
-    k.putDec(runtime_song);
-    k.puts(" frame_hz=");
-    k.putDec(runtime_frame_hz);
-    k.puts(" frames=");
-    k.putDec(runtime_frames);
-    k.puts(" last_steps=");
-    k.putDec(runtime_last_steps);
-    k.puts(" limits=");
-    k.putDec(runtime_step_limit_hits);
-    k.puts("\r\n");
-    k.puts("  render: blocks=");
-    k.putDec(render_blocks);
-    k.puts(" frames=");
-    k.putDec(render_frames);
-    k.puts(" voices=");
-    k.putDec(last_mixed_voices);
-    k.puts(" volume=");
-    k.putDec(last_master_volume);
-    k.puts(" sample=");
-    printSigned(last_sample);
-    k.puts("\r\n");
-    k.puts("  filter: model=");
-    k.puts(modelName());
-    k.puts(" cutoff=");
-    k.putDec(last_filter_cutoff);
-    k.puts(" res=");
-    k.putDec(last_filter_resonance);
-    k.puts(" route=0x");
-    k.putHex(last_filter_route, 2);
-    k.puts(" mode=0x");
-    k.putHex(last_filter_mode, 2);
-    k.puts(" direct=");
-    printSigned(last_direct_sample);
-    k.puts(" filtered=");
-    printSigned(last_filter_sample);
-    k.puts(" voice3off=");
-    k.puts(if (last_voice3_off) "yes" else "no");
-    k.puts("\r\n");
-    k.puts("  mix: d418=");
-    printSigned(last_d418_sample);
-    k.puts(" d418_writes=");
-    k.putDec(d418_write_count);
-    k.puts(" clips=");
-    k.putDec(render_clip_events);
-    k.puts(" block_clips=");
-    k.putDec(last_block_clip_events);
-    k.puts(" preclip=");
-    printSigned32(last_preclip_sample);
-    k.puts("\r\n");
-    k.puts("  read: osc3=0x");
-    k.putHex(last_osc3_read, 2);
-    k.puts(" env3=0x");
-    k.putHex(last_env3_read, 2);
-    k.puts(" pot=0x");
-    k.putHex(last_potx_read, 2);
-    k.putc('/');
-    k.putHex(last_poty_read, 2);
-    k.puts(" raster=");
-    k.putDec(last_raster_read);
-    k.puts(" cia=0x");
-    k.putHex(last_cia_read, 2);
-    k.puts("\r\n");
-    k.puts("  io: read=0x");
-    k.putHex(last_io_read_addr, 4);
-    k.putc('/');
-    k.putHex(last_io_read_value, 2);
-    k.puts(" write=0x");
-    k.putHex(last_io_write_addr, 4);
-    k.putc('/');
-    k.putHex(last_io_write_value, 2);
-    k.puts("\r\n");
-    k.puts("  protocol: source=");
-    k.puts(r4p.requiredSourceName("audio.sid"));
-    k.puts(" model=");
-    k.putDec(sid_r4p_model);
-    k.puts(" reg=");
-    k.putDec(sid_r4p_register);
-    k.puts(" io=");
-    k.putDec(sid_r4p_io);
-    k.puts(" required_missing=");
-    k.putDec(sid_missing_required);
-    k.puts(" fail=");
-    k.putDec(sid_dispatch_failures);
-    k.puts(" kind=");
-    k.putDec(sid_last_kind);
-    k.puts(" voice=");
-    k.putDec(sid_last_voice);
-    k.puts("\r\n");
-}
-
 fn classifySidModel(model: u8) ?r4p_contract.AudioSidOp {
-    if (classifySidModelR4p(model)) |op| return op;
-    sid_missing_required +%= 1;
-    sid_last_result = -5;
-    return null;
-}
-
-fn classifySidModelR4p(model: u8) ?r4p_contract.AudioSidOp {
     if (!r4p.hasActiveR4p("audio.sid")) return null;
     var op = r4p_contract.AudioSidOp{ .model = model };
     if (!dispatchSid(r4p_contract.AUDIO_SID_OP_CONFIGURE_MODEL, &op) or op.result != r4p_contract.AUDIO_SID_RESULT_OK) return null;
-    sid_r4p_model +%= 1;
     return op;
 }
 
 fn classifySidRegister(register: u8, value: u8) ?r4p_contract.AudioSidOp {
-    if (classifySidRegisterR4p(register, value)) |op| {
-        sid_last_kind = op.kind;
-        sid_last_voice = op.voice;
-        return op;
-    }
-    sid_missing_required +%= 1;
-    sid_last_result = -5;
-    sid_last_kind = r4p_contract.AUDIO_SID_REGISTER_OTHER;
-    sid_last_voice = 0;
-    return null;
-}
-
-fn classifySidRegisterR4p(register: u8, value: u8) ?r4p_contract.AudioSidOp {
     if (!r4p.hasActiveR4p("audio.sid")) return null;
     var op = r4p_contract.AudioSidOp{
         .register = register,
         .value = value,
     };
     if (!dispatchSid(r4p_contract.AUDIO_SID_OP_WRITE_REGISTER, &op) or op.result != r4p_contract.AUDIO_SID_RESULT_OK) return null;
-    sid_r4p_register +%= 1;
-    sid_last_kind = op.kind;
-    sid_last_voice = op.voice;
     return op;
 }
 
 fn resolveSidIoAddress(address: u16, value: u8) ?r4p_contract.AudioSidOp {
-    if (resolveSidIoAddressR4p(address, value)) |op| {
-        sid_last_kind = op.kind;
-        sid_last_voice = op.voice;
-        return op;
-    }
-    sid_missing_required +%= 1;
-    sid_last_result = -5;
-    sid_last_kind = r4p_contract.AUDIO_SID_REGISTER_OTHER;
-    sid_last_voice = 0;
-    return null;
-}
-
-fn resolveSidIoAddressR4p(address: u16, value: u8) ?r4p_contract.AudioSidOp {
     if (!r4p.hasActiveR4p("audio.sid")) return null;
     var op = r4p_contract.AudioSidOp{
         .address = address,
         .value = value,
     };
     if (!dispatchSid(r4p_contract.AUDIO_SID_OP_RESOLVE_IO, &op) or op.result != r4p_contract.AUDIO_SID_RESULT_OK) return null;
-    sid_r4p_io +%= 1;
-    sid_last_kind = op.kind;
-    sid_last_voice = op.voice;
     return op;
 }
 
@@ -716,74 +357,32 @@ fn dispatchSid(opcode: u32, op: *r4p_contract.AudioSidOp) bool {
     };
     var out: protocol_api.ProtocolBuffer = .{};
     const result = r4p.dispatch("audio.sid", opcode, &buffer, &out);
-    sid_last_result = result;
     if (result != r4p_contract.AUDIO_SID_RESULT_OK) {
-        sid_dispatch_failures +%= 1;
         return false;
     }
     return true;
-}
-
-fn resetProtocolCounters() void {
-    sid_r4p_model = 0;
-    sid_r4p_register = 0;
-    sid_r4p_io = 0;
-    sid_missing_required = 0;
-    sid_dispatch_failures = 0;
-    sid_last_result = 0;
-    sid_last_kind = 0;
-    sid_last_voice = 0;
 }
 
 fn clearRuntimeState() void {
     initC64Defaults();
     clearRegisters();
     cpu = .{};
-    register_writes = 0;
-    last_register = 0;
-    last_value = 0;
     voices = .{Voice{}} ** VOICE_COUNT;
     runtime_loaded = false;
     runtime_load_addr = 0;
     runtime_data_len = 0;
-    runtime_init_addr = 0;
-    runtime_play_addr = 0;
     runtime_song = 0;
     runtime_frame_hz = 50;
     render_remainder = 0;
     runtime_frames = 0;
-    runtime_running = false;
-    runtime_last_steps = 0;
-    runtime_step_limit_hits = 0;
-    render_blocks = 0;
-    render_frames = 0;
-    last_sample = 0;
-    last_mixed_voices = 0;
-    last_master_volume = 0;
     filter_state = .{};
     last_filter_cutoff = 0;
     last_filter_resonance = 0;
-    last_filter_mode = 0;
-    last_filter_route = 0;
-    last_filter_sample = 0;
-    last_direct_sample = 0;
-    last_voice3_off = false;
-    last_d418_sample = 0;
     d418_decay_sample = 0;
-    d418_write_count = 0;
-    render_clip_events = 0;
-    last_block_clip_events = 0;
-    last_preclip_sample = 0;
     last_osc3_read = 0;
     last_env3_read = 0;
     last_potx_read = 0xFF;
     last_poty_read = 0xFF;
-    last_raster_read = 0;
-    last_cia_read = 0;
-    last_io_read_addr = 0;
-    last_io_read_value = 0;
-    last_io_write_addr = 0;
-    last_io_write_value = 0;
 }
 
 fn inLoadImage(addr: u16) bool {
@@ -956,20 +555,11 @@ fn mixWithHeadroom(sample: i32, active: u8) i32 {
     };
 }
 
-fn localRegisterKind(register: u8) u8 {
-    if (register < 0x15) return r4p_contract.AUDIO_SID_REGISTER_VOICE;
-    if (register >= 0x15 and register <= 0x17) return r4p_contract.AUDIO_SID_REGISTER_FILTER;
-    if (register == 0x18) return r4p_contract.AUDIO_SID_REGISTER_VOLUME;
-    if (register == 0x1B or register == 0x1C) return r4p_contract.AUDIO_SID_REGISTER_READBACK;
-    return r4p_contract.AUDIO_SID_REGISTER_OTHER;
-}
-
 fn noteD418Write(old_value: u8, new_value: u8) void {
     const old_volume: i32 = old_value & 0x0F;
     const new_volume: i32 = new_value & 0x0F;
     const delta = new_volume - old_volume;
     if (delta == 0) return;
-    d418_write_count += 1;
     const gain: i32 = switch (sid_model) {
         .mos6581 => 1100,
         .mos8580 => 260,
@@ -979,7 +569,6 @@ fn noteD418Write(old_value: u8, new_value: u8) void {
 
 fn renderD418Sample() i32 {
     const value = d418_decay_sample;
-    last_d418_sample = clampI16(value);
     if (d418_decay_sample > 0) {
         d418_decay_sample = @divTrunc(d418_decay_sample * 31, 32);
         if (d418_decay_sample < 16) d418_decay_sample = 0;
@@ -1081,13 +670,6 @@ fn softClip(value: i32) i32 {
     return value;
 }
 
-fn modelName() []const u8 {
-    return switch (sid_model) {
-        .mos6581 => "6581",
-        .mos8580 => "8580",
-    };
-}
-
 fn eqIgnoreCase(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
     var i: usize = 0;
@@ -1114,49 +696,21 @@ fn clampI16(value: i32) i16 {
 }
 
 fn clampOutput(value: i32) i16 {
-    last_preclip_sample = value;
     if (value > 32767) {
-        render_clip_events += 1;
-        last_block_clip_events += 1;
         return 32767;
     }
     if (value < -32768) {
-        render_clip_events += 1;
-        last_block_clip_events += 1;
         return -32768;
     }
     return @intCast(value);
 }
 
-fn printSigned(value: i16) void {
-    if (value < 0) {
-        k.putc('-');
-        k.putDec(@intCast(-value));
-    } else {
-        k.putDec(@intCast(value));
-    }
-}
-
-fn printSigned32(value: i32) void {
-    if (value < 0) {
-        k.putc('-');
-        k.putDec(@intCast(-value));
-    } else {
-        k.putDec(@intCast(value));
-    }
-}
-
 fn step() StepEvent {
-    last_pc = cpu.pc;
     const opcode = fetch();
-    last_opcode = opcode;
-    cpu_steps += 1;
 
     switch (opcode) {
         0x00 => {
             setFlag(FLAG_B, true);
-            brk_count += 1;
-            last_error = "brk";
             return .brk;
         },
         0x01 => ora(read(addrIndX())),
@@ -1380,8 +934,6 @@ fn step() StepEvent {
         0xFD => sbc(read(addrAbsX())),
         0xFE => incMem(addrAbsX()),
         else => {
-            unsupported_count += 1;
-            last_error = "unsupported-opcode";
             return .unsupported;
         },
     }
@@ -1403,41 +955,27 @@ fn fetch16() u16 {
 }
 
 fn read(addr: u16) u8 {
-    if (addr >= 0xD000 and addr <= 0xD3FF) return traceIoRead(addr, readVic(addr));
-    if (addr >= 0xD400 and addr <= 0xD7FF) return traceIoRead(addr, readSid(addr));
-    if (addr >= 0xDC00 and addr <= 0xDDFF) return traceIoRead(addr, readCia(addr));
+    if (addr >= 0xD000 and addr <= 0xD3FF) return readVic(addr);
+    if (addr >= 0xD400 and addr <= 0xD7FF) return readSid(addr);
+    if (addr >= 0xDC00 and addr <= 0xDDFF) return readCia(addr);
     return memory[addr];
 }
 
 fn write(addr: u16, value: u8) void {
     if (addr >= 0xD000 and addr <= 0xD3FF) {
-        traceIoWrite(addr, value);
         writeVic(addr, value);
         return;
     }
     if (addr >= 0xD400 and addr <= 0xD7FF) {
-        traceIoWrite(addr, value);
         writeSid(addr, value);
         return;
     }
     if (addr >= 0xDC00 and addr <= 0xDDFF) {
-        traceIoWrite(addr, value);
         writeCia(addr, value);
         return;
     }
     memory[addr] = value;
     written_ram[addr / 8] |= @as(u8, 1) << @intCast(addr % 8);
-}
-
-fn traceIoRead(addr: u16, value: u8) u8 {
-    last_io_read_addr = addr;
-    last_io_read_value = value;
-    return value;
-}
-
-fn traceIoWrite(addr: u16, value: u8) void {
-    last_io_write_addr = addr;
-    last_io_write_value = value;
 }
 
 fn readSid(addr: u16) u8 {
@@ -1479,7 +1017,6 @@ fn sidMirrorRegister(addr: u16) u8 {
 fn readVic(addr: u16) u8 {
     const reg_addr: u16 = 0xD000 | (addr & 0x003F);
     const raster = currentRaster();
-    last_raster_read = raster;
     if (reg_addr == 0xD011) return (memory[reg_addr] & 0x7F) | @as(u8, if ((raster & 0x0100) != 0) 0x80 else 0);
     if (reg_addr == 0xD012) return @intCast(raster & 0x00FF);
     if (reg_addr == 0xD019) {
@@ -1512,7 +1049,6 @@ fn readCia(addr: u16) u8 {
         0x0D => memory[reg_addr] | 0x80,
         else => memory[reg_addr],
     };
-    last_cia_read = value;
     return value;
 }
 

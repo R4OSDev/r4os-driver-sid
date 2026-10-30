@@ -4,13 +4,18 @@
 
 ## Package
 
-- Version: `0.1.4`
+- Version: `0.1.5`
 - Image target: `/R4OS/DRIVERS/SID.R4D`
 - Image scope: `full`
 - Canonical project manifest: `module.R4MF`
 
 The manifest is the single source of truth for the artifact, imports, image
 target, and package metadata.
+
+Version0.1.5 removes unused internal text dumps, private protocol-status output
+and their trace/counter bookkeeping. Real SID/VIC/CIA operations, bounded CPU
+execution, title RAM/write maps, cadence, filter/phase/envelope state and the
+driver's public SynthEngineStatus callback keep their original contracts.
 
 ## Build
 

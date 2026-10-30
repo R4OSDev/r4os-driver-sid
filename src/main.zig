@@ -39,7 +39,6 @@ export fn sid_shutdown() callconv(.c) i32 {
 
 fn sidStop(context: ?*anyopaque) callconv(.c) i32 {
     _ = context;
-    sid.stopRuntime();
     engine_stops +%= 1;
     engine_last_result = 0;
     return 0;
