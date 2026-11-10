@@ -7,11 +7,12 @@ var engine_last_result: i32 = 0;
 var engine: r4os.abi.SynthEngine = .{};
 
 comptime {
-    asm (r4os.r4dev.driverEntriesAsm("sid_init", "sid_shutdown"));
+    if (!@import("builtin").is_test) asm (r4os.technical2.driverEntriesAsm("sid_init", "sid_shutdown"));
 }
 
-export fn sid_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
-    var ctx = r4os.r4dev.DriverContext.init(api);
+export fn sid_init(api: *const r4os.abi.DriverApi2) callconv(.c) i32 {
+    var ctx = r4os.r4dev.DriverContext2.init(api);
+    if (!ctx.requires(.{"register_synth_engine_v2"})) return -10;
     if (!ctx.apiCompatible()) return -10;
     if (!sid.bindProtocolDispatch(api.protocol_dispatch)) return -11;
     ctx.logInfo("SID synth engine init");
